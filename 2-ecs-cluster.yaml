@@ -1,0 +1,101 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: ECS Cluster for EC2 and Fargate Launch Types
+Parameters:
+  EnvironmentName:
+    Type: String
+    Default: ecs-cluster
+    Description: "ECS Cluster for EC2 and Fargate Launch Types"
+  KeyName:
+    Type: AWS::EC2::KeyPair::KeyName
+    Default: ecs-ec2-ssh
+    Description: Name of an existing EC2 KeyPair to enable SSH access to the ECS instances.
+  InstanceType:
+    Description: EC2 instance type
+    Type: String
+    Default: t3.small
+    Description: Choose the EC2 instance type 
+    AllowedValues: [ t3.micro, t3.small, t3.medium, t3.large, t2.xlarge, 
+     t2.2xlarge,m5.large, m5.xlarge, c5.large, c5.xlarge ] 
+    ConstraintDescription: Choose the EC2 instance type
+  DesiredCapacity:
+    Type: Number
+    Default: '1'
+    Description: Desired number of EC2 instances in your ECS cluster.
+  MaxSize:
+    Type: Number
+    Default: '6'
+    Description: Maximum number of EC2 instances in your ECS cluster.
+  ECSAMI:
+    Description: AMI ID
+    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
+    Default: /aws/service/ecs/optimized-ami/amazon-linux-2/recommended/image_id
+    Description: AMI ID for EC2 instance, default value is the latest AMI
+
+Resources:
+  ECSEC2Cluster:
+    Type: AWS::ECS::Cluster
+    Properties:
+      ClusterName: !Sub ${EnvironmentName}
+ 
+  ECSSecurityGroupWeb:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Allow HTTP on port 80
+      VpcId: 
+        Fn::ImportValue: vpc-and-iam-for-ecs-cluster:VpcId
+      SecurityGroupIngress: 
+        - IpProtocol: tcp
+          CidrIp: 0.0.0.0/0
+          FromPort: 80
+          ToPort: 80
+      Tags:
+        - Key: "Name"
+          Value: "ECS-DEMO-Web-SG"
+
+  # Autoscaling group to launch EC2 instances that will register themselves to cluster
+  ECSAutoScalingGroup:
+    Type: AWS::AutoScaling::AutoScalingGroup
+    Properties:
+      VPCZoneIdentifier:
+        - Fn::ImportValue: vpc-and-iam-for-ecs-cluster:ECSDemoPublicSubnetOne
+        - Fn::ImportValue: vpc-and-iam-for-ecs-cluster:ECSDemoPublicSubnetTwo
+
+      LaunchConfigurationName: !Ref 'ECSInstancesLaunchConfig'
+      MinSize: '1'
+      MaxSize: !Ref 'MaxSize'
+      DesiredCapacity: !Ref 'DesiredCapacity'
+    CreationPolicy:
+      ResourceSignal:
+        Timeout: PT15M
+    UpdatePolicy:
+      AutoScalingReplacingUpdate:
+        WillReplace: 'true'
+  ECSInstancesLaunchConfig:
+    Type: AWS::AutoScaling::LaunchConfiguration
+    Properties:
+      ImageId: !Ref 'ECSAMI'
+      SecurityGroups: [!Ref 'ECSSecurityGroupWeb']
+      InstanceType: !Ref 'InstanceType'
+      KeyName: !Ref 'KeyName'
+      IamInstanceProfile: !Ref 'EC2InstanceProfile'
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash -xe
+          echo ECS_CLUSTER=${ECSEC2Cluster} >> /etc/ecs/ecs.config
+          yum install -y aws-cfn-bootstrap
+          /opt/aws/bin/cfn-signal -e $? --stack ${AWS::StackName} --resource ECSAutoScalingGroup --region ${AWS::Region}
+  EC2InstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Path: /
+      # Roles: [ 'vpc-and-iam-for-ecs-cluster-ECSEC2Role-IQ5Y4RH1WRAZ' ]
+      Roles: 
+        - Fn::ImportValue: vpc-and-iam-for-ecs-cluster:ECSEC2Role
+
+Outputs:
+  ClusterName:
+    Description: ECS Cluster for EC2 and Fargate Launch Types
+    Value: !Ref 'ECSEC2Cluster'
+    Export:
+      Name: !Sub ${EnvironmentName}:ClusterName
+  

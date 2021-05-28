@@ -1,0 +1,318 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: VPC Infrastructure with Public Subnets for an ECS Cluster
+Parameters:
+  EnvironmentName:
+    Type: String
+    Default: aws-alb-for-ecs-launch-types
+    Description: "Orchestrating Amazon ECS Launch Types by AWS ALB Path-Based Routing"
+  KeyName:
+    Type: AWS::EC2::KeyPair::KeyName
+    Default: ecs-ec2-ssh
+    Description: Name of an existing EC2 KeyPair to enable SSH access to the ECS instances.
+  InstanceType:
+    Description: EC2 instance type
+    Type: String
+    Default: t3.small
+    Description: Choose the EC2 instance type 
+    AllowedValues: [ t3.micro, t3.small, t3.medium, t3.large, t2.xlarge, 
+     t2.2xlarge,m5.large, m5.xlarge, c5.large, c5.xlarge ] 
+    ConstraintDescription: Choose the EC2 instance type
+  DesiredCapacity:
+    Type: Number
+    Default: '1'
+    Description: Desired number of EC2 instances in your ECS cluster.
+  MaxSize:
+    Type: Number
+    Default: '6'
+    Description: Maximum number of EC2 instances in your ECS cluster.
+  ECSAMI:
+    Description: AMI ID
+    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
+    Default: /aws/service/ecs/optimized-ami/amazon-linux-2/recommended/image_id
+    Description: AMI ID for EC2 instance, default value is the latest AMI
+
+
+Mappings:
+  CIDR:
+    VPC-CIDR:
+      CIDR: "172.16.0.0/16"
+    PublicSubnet1-CIDR:
+      CIDR: "172.16.0.0/24"
+    PublicSubnet2-CIDR:
+      CIDR: "172.16.1.0/24"
+    PublicSubnet3-CIDR:
+      CIDR: "172.16.2.0/24"
+
+Resources:
+  ## VPC Infrastructure
+  ECSDemoVPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      CidrBlock: !FindInMap ["CIDR", "VPC-CIDR", "CIDR"]
+      Tags:
+        - Key: "Name"
+          Value: "ECSDemoVPC"
+  ## Two Public Subnets
+  ECSDemoPublicSubnetOne:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone:
+        Fn::Select:
+          - 0
+          - Fn::GetAZs: { Ref: "AWS::Region" }
+      Tags:
+        - Key: "Name"
+          Value: "ECSDemoPublicSubnetOne"
+      VpcId: !Ref "ECSDemoVPC"
+      CidrBlock: !FindInMap ["CIDR", "PublicSubnet1-CIDR", "CIDR"]
+      MapPublicIpOnLaunch: true
+  ECSDemoPublicSubnetTwo:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone:
+        Fn::Select:
+          - 1
+          - Fn::GetAZs: { Ref: "AWS::Region" }
+      Tags:
+        - Key: "Name"
+          Value: "ECSDemoPublicSubnetTwo"
+      VpcId: !Ref "ECSDemoVPC"
+      CidrBlock: !FindInMap ["CIDR", "PublicSubnet2-CIDR", "CIDR"]
+      MapPublicIpOnLaunch: true
+  ## IGW and Route Tables
+  ECSDemoInternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: "Name"
+          Value: "ECSDemoInternetGateway"
+  ECSDemoGatewayAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref "ECSDemoVPC"
+      InternetGatewayId: !Ref "ECSDemoInternetGateway"
+  ECSDemoPublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref "ECSDemoVPC"
+      Tags:
+        - Key: "Name"
+          Value: "ECSDemoPublicRouteTable"
+  ECSDemoPublicRoute:
+    Type: AWS::EC2::Route
+    DependsOn: ECSDemoGatewayAttachment
+    Properties:
+      RouteTableId: !Ref "ECSDemoPublicRouteTable"
+      DestinationCidrBlock: "0.0.0.0/0"
+      GatewayId: !Ref "ECSDemoInternetGateway"
+  ECSDemoPublicSubnetOneRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref ECSDemoPublicSubnetOne
+      RouteTableId: !Ref ECSDemoPublicRouteTable
+  ECSDemoPublicSubnetTwoRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref ECSDemoPublicSubnetTwo
+      RouteTableId: !Ref ECSDemoPublicRouteTable
+
+  ## IAM ROLES
+  ECSEC2Role:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: [ec2.amazonaws.com]
+            Action: ["sts:AssumeRole"]
+      Path: /
+      Policies:
+        - PolicyName: ecs-service
+          PolicyDocument:
+            Statement:
+              - Effect: Allow
+                Action:
+                  - "ecs:CreateCluster"
+                  - "ecs:DeregisterContainerInstance"
+                  - "ecs:DiscoverPollEndpoint"
+                  - "ecs:Poll"
+                  - "ecs:RegisterContainerInstance"
+                  - "ecs:StartTelemetrySession"
+                  - "ecs:Submit*"
+                  - "logs:CreateLogStream"
+                  - "logs:PutLogEvents"
+                  - "ecr:GetAuthorizationToken"
+                  - "ecr:BatchGetImage"
+                  - "ecr:GetDownloadUrlForLayer"
+                Resource: "*"
+      RoleName: "ECS-EC2-Role"  
+      Tags:
+        - Key: "Name"
+          Value: "ECS-EC2-Role"
+  ECSServiceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: [ecs.amazonaws.com]
+            Action: ["sts:AssumeRole"]
+      Path: /
+      Policies:
+        - PolicyName: ecs-service
+          PolicyDocument:
+            Statement:
+              - Effect: Allow
+                Action:
+                  # allow ECS to use ENIs
+                  - "ec2:AttachNetworkInterface"
+                  - "ec2:CreateNetworkInterface"
+                  - "ec2:CreateNetworkInterfacePermission"
+                  - "ec2:DeleteNetworkInterface"
+                  - "ec2:DeleteNetworkInterfacePermission"
+                  - "ec2:Describe*"
+                  - "ec2:DetachNetworkInterface"
+                  # allow ECS to use ALB
+                  - "elasticloadbalancing:DeregisterInstancesFromLoadBalancer"
+                  - "elasticloadbalancing:DeregisterTargets"
+                  - "elasticloadbalancing:Describe*"
+                  - "elasticloadbalancing:RegisterInstancesWithLoadBalancer"
+                  - "elasticloadbalancing:RegisterTargets"
+                Resource: "*"
+      RoleName: "ECS-Service-Role"      
+      Tags:
+        - Key: "Name"
+          Value: "ECS-Service-Role"
+  ECSTaskExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: [ecs-tasks.amazonaws.com]
+            Action: ["sts:AssumeRole"]
+      Path: /
+      Policies:
+        - PolicyName: AmazonECSTaskExecutionRolePolicy
+          PolicyDocument:
+            Statement:
+              - Effect: Allow
+                Action:
+                  # allow ECS Tasks to download images from ECR
+                  - "ecr:GetAuthorizationToken"
+                  - "ecr:BatchCheckLayerAvailability"
+                  - "ecr:GetDownloadUrlForLayer"
+                  - "ecr:BatchGetImage"
+                  # allow ECS tasks to upload logs to CloudWatch
+                  - "logs:CreateLogStream"
+                  - "logs:PutLogEvents"
+                Resource: "*"
+      RoleName: "ECSTaskExecutionRole"    
+      Tags:
+        - Key: "Name"
+          Value: "ECSTaskExecutionRole"
+  ## an ECS Cluster, which will support both EC2 and EC2 Launch types
+  ECSEC2Cluster:
+    Type: AWS::ECS::Cluster
+    Properties:
+      ClusterName: !Sub ${EnvironmentName}
+  
+  ## Security Group for HTTP Access
+  ECSSecurityGroupWeb:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Allow HTTP on port 80
+      GroupName: "ECS-DEMO-Web-SG"
+      VpcId: 
+        !Ref ECSDemoVPC
+      SecurityGroupIngress: 
+        - IpProtocol: tcp
+          CidrIp: 0.0.0.0/0
+          FromPort: 80
+          ToPort: 80
+      Tags:
+        - Key: "Name"
+          Value: "ECS-DEMO-Web-SG"
+
+  ## Autoscaling group to launch EC2 instances that will register themselves to cluster
+  ECSAutoScalingGroup:
+    Type: AWS::AutoScaling::AutoScalingGroup
+    DependsOn: [ECSDemoVPC, ECSDemoPublicSubnetOne, ECSDemoPublicSubnetTwo]
+    Properties:
+      VPCZoneIdentifier:
+        # - Fn::ImportValue: vpc-and-iam-for-ecs-cluster:ECSDemoPublicSubnetOne
+        # - Fn::ImportValue: vpc-and-iam-for-ecs-cluster:ECSDemoPublicSubnetTwo
+        - !Ref ECSDemoPublicSubnetOne
+        - !Ref ECSDemoPublicSubnetTwo
+
+      LaunchConfigurationName: !Ref 'ECSInstancesLaunchConfig'
+      MinSize: '1'
+      MaxSize: !Ref 'MaxSize'
+      DesiredCapacity: !Ref 'DesiredCapacity'
+    CreationPolicy:
+      ResourceSignal:
+        Timeout: PT15M
+    UpdatePolicy:
+      AutoScalingReplacingUpdate:
+        WillReplace: 'true'
+
+
+  ECSInstancesLaunchConfig:
+    Type: AWS::AutoScaling::LaunchConfiguration
+    Properties:
+      ImageId: !Ref 'ECSAMI'
+      SecurityGroups: [!Ref 'ECSSecurityGroupWeb']
+      InstanceType: !Ref 'InstanceType'
+      KeyName: !Ref 'KeyName'
+      IamInstanceProfile: !Ref 'EC2InstanceProfile'
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash -xe
+          echo ECS_CLUSTER=${ECSEC2Cluster} >> /etc/ecs/ecs.config
+          yum install -y aws-cfn-bootstrap
+          /opt/aws/bin/cfn-signal -e $? --stack ${AWS::StackName} --resource ECSAutoScalingGroup --region ${AWS::Region}
+  EC2InstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Path: /
+      Roles: [ 'ECS-EC2-Role' ]
+      # Roles: 
+      #   - Fn::ImportValue: vpc-and-iam-for-ecs-cluster:ECSEC2Role
+    DependsOn: ECSEC2Role
+
+Outputs:
+  VpcId:
+    Description: ECS DemoVPC ID
+    Value: !Ref "ECSDemoVPC"
+    Export:
+      Name: !Sub ${EnvironmentName}:VpcId
+  ECSDemoPublicSubnetOne:
+    Description: Public Subnet One
+    Value: !Ref "ECSDemoPublicSubnetOne"
+    Export:
+      Name: !Sub ${EnvironmentName}:ECSDemoPublicSubnetOne
+  ECSDemoPublicSubnetTwo:
+    Description: Public Subnet Two
+    Value: !Ref "ECSDemoPublicSubnetTwo"
+    Export:
+      Name: !Sub ${EnvironmentName}:ECSDemoPublicSubnetTwo
+  ECSServiceRole:
+    Description: The ARN of the ECS role
+    Value: !Ref "ECSServiceRole"
+    Export:
+      Name: !Sub ${EnvironmentName}:ECSServiceRole
+  ECSEC2Role:
+    Description: The ARN of the EC2 role
+    Value: !Ref "ECSEC2Role"
+    Export:
+      Name: !Sub ${EnvironmentName}:ECSEC2Role
+  ECSTaskExecutionRole:
+    Description: The ARN of the ECS role
+    Value: !Ref "ECSTaskExecutionRole"
+    Export:
+      Name: !Sub ${EnvironmentName}:ECSTaskExecutionRole
