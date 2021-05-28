@@ -1,5 +1,5 @@
 {
-  "executionRoleArn": "arn:aws:iam::158927923071:role/ECSTaskExecutionRole",
+  "executionRoleArn": "arn:aws:iam::<AWS_ID>:role/ECSTaskExecutionRole",
   "containerDefinitions": [
     {
       "logConfiguration": {
@@ -27,7 +27,7 @@
   ],
   "placementConstraints": [],
   "memory": "512",
-  "taskRoleArn": "arn:aws:iam::158927923071:role/ECSTaskExecutionRole",
+  "taskRoleArn": "arn:aws:iam::<AWS_ID>:role/ECSTaskExecutionRole",
   "family": "TD-nodejs-Fargate",
   "requiresCompatibilities": ["FARGATE"],
   "networkMode": "awsvpc",

@@ -1,12 +1,12 @@
 {
-  "executionRoleArn": "arn:aws:iam::158927923071:role/ECSTaskExecutionRole",
+  "executionRoleArn": "arn:aws:iam::<AWS_ID>:role/ECSTaskExecutionRole",
   "containerDefinitions": [
     {
       "portMappings": [
         {
           "hostPort": 0,
           "protocol": "tcp",
-          "containerPort": 3000
+          "containerPort": 80
         }
       ],
       "cpu": 0,
@@ -18,7 +18,7 @@
     }
   ],
   "placementConstraints": [],
-  "taskRoleArn": "arn:aws:iam::158927923071:role/ECSTaskExecutionRole",
+  "taskRoleArn": "arn:aws:iam::<AWS_ID>:role/ECSTaskExecutionRole",
   "family": "TD-nodejs-EC2",
   "requiresCompatibilities": ["EC2"],
   "networkMode": "bridge",
