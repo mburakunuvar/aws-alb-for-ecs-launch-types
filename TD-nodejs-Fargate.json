@@ -2,14 +2,6 @@
   "executionRoleArn": "arn:aws:iam::<AWS_ID>:role/ECSTaskExecutionRole",
   "containerDefinitions": [
     {
-      "logConfiguration": {
-        "logDriver": "awslogs",
-        "options": {
-          "awslogs-group": "/ecs/TD-nodejs-Fargate",
-          "awslogs-region": "eu-west-1",
-          "awslogs-stream-prefix": "ecs"
-        }
-      },
       "portMappings": [
         {
           "hostPort": 80,
