@@ -390,8 +390,20 @@ Resources:
       Protocol: HTTP
 
 Outputs:
-  PublicUrlofALB:
-    Description: Publicly Accessible URL of the Application Load Balancer
+  DefaultUrlofALB:
+    Description: Default and Public URL of the Application Load Balancer
     Value: !Sub http://${ApplicationLoadBalancer.DNSName}
     Export:
-      Name: !Sub ${EnvironmentName}:ExternalUrl
+      Name: !Sub ${EnvironmentName}:ApplicationLoadBalancer
+
+  UrlPathforEC2:
+    Description: Target for default URL and any path that ends with /ec2/*
+    Value: !Sub http://${ApplicationLoadBalancer.DNSName}/ec2/*
+    Export:
+      Name: !Sub ${EnvironmentName}:TargetGroupForECSEC2
+
+  UrlPathforFargate:
+    Description: Target for any path that ends with /fargate/*
+    Value: !Sub http://${ApplicationLoadBalancer.DNSName}/fargate/*
+    Export:
+      Name: !Sub ${EnvironmentName}:TargetGroupForECSFargate
