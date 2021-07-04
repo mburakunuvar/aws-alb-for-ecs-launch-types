@@ -217,7 +217,7 @@ Resources:
         - Key: "Name"
           Value: "ECSTaskExecutionRole"
   ## an ECS Cluster, which will support both EC2 and EC2 Launch types
-  ECSEC2Cluster:
+  ECSCluster:
     Type: AWS::ECS::Cluster
     Properties:
       ClusterName: !Sub ${EnvironmentName}
@@ -267,6 +267,7 @@ Resources:
       MinSize: '1'
       MaxSize: !Ref 'MaxSize'
       DesiredCapacity: !Ref 'DesiredCapacity'
+      NewInstancesProtectedFromScaleIn: 'false'
     CreationPolicy:
       ResourceSignal:
         Timeout: PT15M
@@ -274,7 +275,27 @@ Resources:
       AutoScalingReplacingUpdate:
         WillReplace: 'true'
 
-
+  ECSEC2CapacityProvider:
+    Type: "AWS::ECS::CapacityProvider"
+    Properties:
+      AutoScalingGroupProvider:
+        AutoScalingGroupArn: !Ref ECSAutoScalingGroup
+        ManagedScaling:
+          Status: ENABLED
+          TargetCapacity: 100
+        ManagedTerminationProtection: DISABLED
+      Name: ec2-capacity-provider
+  
+  ClusterCPAssociation:
+    Type: "AWS::ECS::ClusterCapacityProviderAssociations"
+    Properties:
+      Cluster: !Ref ECSCluster
+      CapacityProviders:
+        - !Ref ECSEC2CapacityProvider
+      DefaultCapacityProviderStrategy:
+        - CapacityProvider: !Ref ECSEC2CapacityProvider
+          Base: 1
+          Weight: 1 
   ECSInstancesLaunchConfig:
     Type: AWS::AutoScaling::LaunchConfiguration
     Properties:
@@ -286,7 +307,7 @@ Resources:
       UserData:
         Fn::Base64: !Sub |
           #!/bin/bash -xe
-          echo ECS_CLUSTER=${ECSEC2Cluster} >> /etc/ecs/ecs.config
+          echo ECS_CLUSTER=${ECSCluster} >> /etc/ecs/ecs.config
           yum install -y aws-cfn-bootstrap
           /opt/aws/bin/cfn-signal -e $? --stack ${AWS::StackName} --resource ECSAutoScalingGroup --region ${AWS::Region}
   EC2InstanceProfile:
